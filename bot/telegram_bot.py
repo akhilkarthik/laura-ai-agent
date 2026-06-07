@@ -11,6 +11,7 @@ from linkedin.poster import post_to_linkedin
 from db.schedule_store import add_post, get_pending, cancel_post
 from utils.url_fetcher import fetch_article
 from utils.gmail_sender import send_email
+from utils.notion_client import create_page as notion_create_page
 
 _LAST_POST = "last_post"
 _LAST_EMAIL = "last_email"
@@ -36,6 +37,16 @@ def _extract_post(text: str):
     return None, text, None
 
 
+def _extract_notion_note(text: str):
+    match = re.search(r'<notion_note title="([^"]+)">(.*?)</notion_note>', text, re.DOTALL)
+    if match:
+        title = match.group(1).strip()
+        content = match.group(2).strip()
+        surrounding = text.replace(match.group(0), '').strip()
+        return {"title": title, "content": content}, surrounding
+    return None, text
+
+
 def _extract_email(text: str):
     match = re.search(r'<email_draft to="([^"]+)" subject="([^"]+)">(.*?)</email_draft>', text, re.DOTALL)
     if match:
@@ -55,12 +66,17 @@ def _email_keyboard():
 
 
 def _post_keyboard():
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Post Now", callback_data="post"),
-        InlineKeyboardButton("Schedule", callback_data="schedule"),
-        InlineKeyboardButton("Regenerate", callback_data="regen"),
-        InlineKeyboardButton("Edit", callback_data="edit"),
-    ]])
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Post Now", callback_data="post"),
+            InlineKeyboardButton("Schedule", callback_data="schedule"),
+        ],
+        [
+            InlineKeyboardButton("Regenerate", callback_data="regen"),
+            InlineKeyboardButton("Edit", callback_data="edit"),
+            InlineKeyboardButton("Save to Notion", callback_data="save_notion"),
+        ]
+    ])
 
 
 def _format_ist(iso_str: str) -> str:
@@ -108,6 +124,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Your chat ID: {update.effective_user.id}")
+
+
+async def note_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    title = ' '.join(context.args) if context.args else 'Quick Note'
+    await update.message.chat.send_action("typing")
+    try:
+        url = notion_create_page(title, f"Quick note created via Laura bot.")
+        await update.message.reply_text(f"Note saved to Notion!\n\n{url}")
+    except Exception as e:
+        await update.message.reply_text(f"Failed to save: {e}")
 
 
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,7 +221,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             history = history[-MAX_HISTORY:]
         context.user_data[_HISTORY] = history
 
-        # Check for email draft first
+        # Check for Notion note
+        note, surrounding = _extract_notion_note(response)
+        if note:
+            if surrounding:
+                await update.message.reply_text(surrounding)
+            await update.message.chat.send_action("typing")
+            try:
+                url = notion_create_page(note["title"], note["content"])
+                await update.message.reply_text(f"Saved to Notion: {note['title']}\n\n{url}")
+            except Exception as e:
+                await update.message.reply_text(f"Could not save to Notion: {e}")
+            return
+
+        # Check for email draft
         email, surrounding = _extract_email(response)
         if email:
             context.user_data[_LAST_EMAIL] = email
@@ -292,6 +331,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"Error: {e}")
 
+    elif query.data == "save_notion":
+        post = context.user_data.get(_LAST_POST)
+        if not post:
+            await query.edit_message_text("No post to save.")
+            return
+        history = context.user_data.get(_HISTORY, [])
+        title = "LinkedIn Post"
+        for msg in reversed(history):
+            if msg["role"] == "user":
+                title = msg["content"][:60]
+                break
+        try:
+            url = notion_create_page(title, post)
+            await query.edit_message_text(f"Saved to Notion!\n\n{url}")
+        except Exception as e:
+            await query.edit_message_text(f"Failed to save: {e}")
+
     elif query.data == "send_email":
         email = context.user_data.get(_LAST_EMAIL)
         if not email:
@@ -336,6 +392,7 @@ def run_bot():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("clear", clear))
     app.add_handler(CommandHandler("myid", myid))
+    app.add_handler(CommandHandler("note", note_command))
     app.add_handler(CommandHandler("scheduled", scheduled_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))

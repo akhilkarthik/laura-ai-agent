@@ -35,4 +35,6 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           MAILJET_API_KEY: ${{ secrets.MAILJET_API_KEY }}
           MAILJET_SECRET_KEY: ${{ secrets.MAILJET_SECRET_KEY }}
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_PAGE_ID: ${{ secrets.NOTION_PAGE_ID }}
         run: python main.py
