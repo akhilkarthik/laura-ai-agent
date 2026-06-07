@@ -26,16 +26,17 @@ async def generate_ideas() -> str:
                 "content": f"""You are a LinkedIn content strategist for an AI/ML researcher and data scientist.
 Today is {now}.
 
-Generate exactly 5 specific, high-value LinkedIn post ideas for this week.
+Generate exactly 5 specific, high-value LinkedIn post ideas for today.
 Each idea must have a sharp, non-generic angle — something a practitioner would actually find useful.
 Topics: AI agents, LLMs, RAG, MLOps, data science, research papers, career insights, tools.
+Make each idea fresh — avoid repeating themes from previous days.
 
 Format (plain text, no markdown symbols):
 1. [Title] — [One sentence on the angle/hook]
 2. ...
 (5 total, nothing else)"""
             },
-            {"role": "user", "content": "Give me this week's post ideas."}
+            {"role": "user", "content": "Give me today's post ideas."}
         ],
         temperature=0.9,
         max_tokens=400
@@ -61,11 +62,11 @@ async def main():
         print("TELEGRAM_CHAT_ID not set — skipping.")
         return
 
-    print("Generating weekly ideas...")
+    print("Generating daily ideas...")
     ideas = await generate_ideas()
 
     message = (
-        "Good morning! Here are 5 LinkedIn post ideas for this week:\n\n"
+        "Good morning! Here are your 5 LinkedIn post ideas for today:\n\n"
         f"{ideas}\n\n"
         "Reply with a number to write any of these, or just paste a URL or topic."
     )
