@@ -45,7 +45,7 @@ email body here
 
 When saving to Notion:
 <notion_note title="Short title">
-content to save
+complete content here — do NOT summarize, shorten, or paraphrase. Copy the full article text, full PDF content, or full note exactly as given. If the user said "save this", preserve everything word for word.
 </notion_note>
 
 Current date and time: {CURRENT_DATETIME}"""
