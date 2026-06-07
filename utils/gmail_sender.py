@@ -1,22 +1,30 @@
 import os
 import json
+import base64
 import urllib.request
 
 
 def send_email(to: str, subject: str, body: str):
-    api_key = os.getenv("RESEND_API_KEY")
-    if not api_key:
-        raise ValueError("RESEND_API_KEY not set")
+    api_key = os.getenv("MAILJET_API_KEY")
+    secret_key = os.getenv("MAILJET_SECRET_KEY")
+    from_email = os.getenv("MAILJET_FROM_EMAIL", "akhilkarthik0007@gmail.com")
+
+    if not api_key or not secret_key:
+        raise ValueError("MAILJET_API_KEY and MAILJET_SECRET_KEY not set")
+
+    credentials = base64.b64encode(f"{api_key}:{secret_key}".encode()).decode()
 
     payload = json.dumps({
-        "from": "Laura <onboarding@resend.dev>",
-        "to": [to],
-        "subject": subject,
-        "text": body
+        "Messages": [{
+            "From": {"Email": from_email, "Name": "Laura"},
+            "To": [{"Email": to}],
+            "Subject": subject,
+            "TextPart": body
+        }]
     }).encode()
 
-    req = urllib.request.Request("https://api.resend.com/emails", data=payload, method="POST")
-    req.add_header("Authorization", f"Bearer {api_key}")
+    req = urllib.request.Request("https://api.mailjet.com/v3.1/send", data=payload, method="POST")
+    req.add_header("Authorization", f"Basic {credentials}")
     req.add_header("Content-Type", "application/json")
 
     with urllib.request.urlopen(req) as resp:
