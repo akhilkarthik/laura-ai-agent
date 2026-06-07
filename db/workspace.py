@@ -57,25 +57,43 @@ def save_workspace(user_id: int, workspace: dict, sha: str = None) -> str:
     return result["content"]["sha"]
 
 
-def add_item(workspace: dict, item_type: str, content: str, label: str) -> str:
+def add_item(workspace: dict, item_type: str, content: str, label: str, meta: dict = None) -> str:
     now = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
     short_id = str(abs(hash(label + content)))[-6:]
     item_id = f"{item_type[:2]}_{short_id}"
 
     workspace["items"] = [i for i in workspace["items"] if i["id"] != item_id]
-    workspace["items"].append({
+    item = {
         "id": item_id,
         "type": item_type,
         "label": label,
         "content": content,
-        "saved_at": now
-    })
+        "saved_at": now,
+    }
+    if meta:
+        item.update(meta)
+    workspace["items"].append(item)
     return item_id
+
+
+def update_item_meta(workspace: dict, item_id: str, meta_update: dict):
+    for item in workspace["items"]:
+        if item["id"] == item_id:
+            item.update(meta_update)
+            return True
+    return False
 
 
 def get_item_by_type(workspace: dict, item_type: str):
     matches = [i for i in workspace["items"] if i["type"] == item_type]
     return matches[-1] if matches else None
+
+
+def get_tracked_posts(workspace: dict) -> list:
+    return [
+        i for i in workspace.get("items", [])
+        if i["type"] == "linkedin_post" and i.get("analytics")
+    ]
 
 
 def get_items_context(workspace: dict) -> str:
@@ -85,5 +103,14 @@ def get_items_context(workspace: dict) -> str:
     lines = []
     for item in reversed(items[-15:]):
         label = item["type"].replace("_", " ").title()
-        lines.append(f"[{item['id']}] {label}: \"{item['label']}\" — {item['saved_at']}")
+        analytics = item.get("analytics")
+        suffix = ""
+        if analytics:
+            parts = []
+            for k in ("reactions", "comments", "views", "shares"):
+                if analytics.get(k):
+                    parts.append(f"{analytics[k]} {k}")
+            if parts:
+                suffix = f" [{', '.join(parts)}]"
+        lines.append(f"[{item['id']}] {label}: \"{item['label']}\" — {item['saved_at']}{suffix}")
     return "\n".join(lines)

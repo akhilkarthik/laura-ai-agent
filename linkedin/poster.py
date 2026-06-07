@@ -35,7 +35,8 @@ def post_to_linkedin(text: str) -> str:
     try:
         with urllib.request.urlopen(req) as resp:
             post_id = resp.headers.get("x-restli-id", "unknown")
-            return post_id
+            post_url = f"https://www.linkedin.com/feed/update/{post_id}"
+            return post_id, post_url
     except urllib.error.HTTPError as e:
         body = e.read().decode()
         raise RuntimeError(f"LinkedIn API error {e.code}: {body}")

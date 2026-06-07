@@ -37,11 +37,11 @@ def run():
     for item in due:
         print(f"Posting scheduled item {item['id']}...")
         try:
-            post_id = post_to_linkedin(item["post"])
+            post_id, post_url = post_to_linkedin(item["post"])
             mark_posted(all_posts, sha, item["id"])
             print(f"Posted: {post_id}")
             try:
-                notify(item["user_id"], f"Your scheduled post is live on LinkedIn!\n\nPost ID: {post_id}")
+                notify(item["user_id"], f"Your scheduled post is live!\n\n{post_url}\n\nWhen you check the stats, tell me the numbers and I'll track them.")
             except Exception as e:
                 print(f"Notification failed: {e}")
         except Exception as e:
