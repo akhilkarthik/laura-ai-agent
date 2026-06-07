@@ -1,16 +1,20 @@
 import os
 import re
+from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
 )
-from llm.groq_client import chat
+from llm.groq_client import chat, parse_datetime
 from linkedin.poster import post_to_linkedin
+from db.schedule_store import add_post, get_pending, cancel_post
 
 _LAST_POST = "last_post"
 _HISTORY = "history"
+_AWAITING_SCHEDULE = "awaiting_schedule"
 MAX_HISTORY = 30
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def _extract_post(text: str):
@@ -18,31 +22,45 @@ def _extract_post(text: str):
     if match:
         post = match.group(1).strip()
         surrounding = text.replace(match.group(0), '').strip()
-        return post, surrounding
-    return None, text
+        return post, surrounding, None
+    match = re.search(r'<schedule_post datetime="([^"]+)">(.*?)</schedule_post>', text, re.DOTALL)
+    if match:
+        dt = match.group(1).strip()
+        post = match.group(2).strip()
+        surrounding = text.replace(match.group(0), '').strip()
+        return post, surrounding, dt
+    return None, text, None
 
 
 def _post_keyboard():
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Post to LinkedIn", callback_data="post"),
+        InlineKeyboardButton("Post Now", callback_data="post"),
+        InlineKeyboardButton("Schedule", callback_data="schedule"),
         InlineKeyboardButton("Regenerate", callback_data="regen"),
         InlineKeyboardButton("Edit", callback_data="edit"),
     ]])
 
 
+def _format_ist(iso_str: str) -> str:
+    dt = datetime.fromisoformat(iso_str).astimezone(IST)
+    return dt.strftime("%d %b %Y at %I:%M %p IST")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data[_HISTORY] = []
     context.user_data.pop(_LAST_POST, None)
+    context.user_data.pop(_AWAITING_SCHEDULE, None)
     await update.message.reply_text(
         "Hey! I'm Alex, your personal assistant.\n\n"
         "I can help you with:\n"
-        "- LinkedIn posts — create, edit, rewrite, post\n"
+        "- LinkedIn posts — create, edit, rewrite, post, schedule\n"
         "- Edit or rewrite any content\n"
         "- Summarize articles or papers\n"
         "- Answer questions on any topic\n"
         "- Write emails, messages, anything\n\n"
         "Just talk to me naturally.\n\n"
-        "/help — commands\n"
+        "/scheduled — view pending scheduled posts\n"
+        "/help — all commands\n"
         "/clear — reset conversation"
     )
 
@@ -52,14 +70,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "What I can do:\n\n"
         "LinkedIn:\n"
         "  'Write a LinkedIn post about [topic]'\n"
-        "  'Make it shorter / more casual / bolder'\n"
-        "  'Rewrite with a storytelling angle'\n\n"
+        "  'Write a post about X and schedule it for tonight 9pm'\n"
+        "  'Make it shorter / more casual / bolder'\n\n"
         "Content:\n"
         "  'Edit this: [paste your text]'\n"
         "  'Summarize: [paste article]'\n"
         "  'Rewrite this in a professional tone'\n\n"
         "General:\n"
         "  Ask me anything — I remember our conversation\n\n"
+        "/scheduled — view & cancel pending scheduled posts\n"
         "/clear — wipe conversation history\n"
         "/start — fresh start"
     )
@@ -68,13 +87,63 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data[_HISTORY] = []
     context.user_data.pop(_LAST_POST, None)
+    context.user_data.pop(_AWAITING_SCHEDULE, None)
     await update.message.reply_text("Cleared. Fresh start.")
+
+
+async def scheduled_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        pending = get_pending(user_id)
+    except Exception as e:
+        await update.message.reply_text(f"Could not fetch scheduled posts: {e}")
+        return
+
+    if not pending:
+        await update.message.reply_text("No scheduled posts pending.")
+        return
+
+    lines = ["Scheduled posts:\n"]
+    for p in pending:
+        lines.append(f"ID: {p['id']}\nTime: {_format_ist(p['scheduled_at'])}\nPost: {p['post'][:80]}...\n")
+
+    lines.append("To cancel: send 'cancel <id>'")
+    await update.message.reply_text("\n".join(lines))
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text
-    history = context.user_data.get(_HISTORY, [])
+    user_id = update.effective_user.id
 
+    # Handle cancel command
+    if user_input.lower().startswith("cancel "):
+        post_id = user_input.split(" ", 1)[1].strip()
+        try:
+            ok = cancel_post(user_id, post_id)
+            await update.message.reply_text("Cancelled." if ok else "Post not found or already published.")
+        except Exception as e:
+            await update.message.reply_text(f"Error: {e}")
+        return
+
+    # Handle scheduling state — user just told us when to post
+    if context.user_data.get(_AWAITING_SCHEDULE):
+        context.user_data.pop(_AWAITING_SCHEDULE)
+        post = context.user_data.get(_LAST_POST)
+        if not post:
+            await update.message.reply_text("No post found. Generate a post first.")
+            return
+        await update.message.chat.send_action("typing")
+        try:
+            iso_dt = await parse_datetime(user_input)
+            post_id = add_post(user_id, post, iso_dt)
+            await update.message.reply_text(
+                f"Scheduled for {_format_ist(iso_dt)}\n\nID: {post_id}\n\nI'll post it and notify you when it goes live."
+            )
+        except Exception as e:
+            await update.message.reply_text(f"Could not schedule: {e}")
+        return
+
+    history = context.user_data.get(_HISTORY, [])
     history.append({"role": "user", "content": user_input})
     await update.message.chat.send_action("typing")
 
@@ -86,9 +155,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             history = history[-MAX_HISTORY:]
         context.user_data[_HISTORY] = history
 
-        post, surrounding = _extract_post(response)
+        post, surrounding, scheduled_dt = _extract_post(response)
 
-        if post:
+        if post and scheduled_dt:
+            # LLM scheduled it directly in one shot
+            try:
+                post_id = add_post(user_id, post, scheduled_dt)
+                msg = surrounding + "\n\n" if surrounding else ""
+                msg += f"Scheduled for {_format_ist(scheduled_dt)}\n\nID: {post_id}\nPost preview:\n\n{post[:150]}..."
+                await update.message.reply_text(msg)
+            except Exception as e:
+                await update.message.reply_text(f"Could not schedule: {e}")
+
+        elif post:
             context.user_data[_LAST_POST] = post
             if surrounding:
                 await update.message.reply_text(surrounding)
@@ -119,6 +198,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"Failed: {e}")
 
+    elif query.data == "schedule":
+        post = context.user_data.get(_LAST_POST)
+        if not post:
+            await query.edit_message_text("No post to schedule. Generate a post first.")
+            return
+        context.user_data[_AWAITING_SCHEDULE] = True
+        await query.edit_message_text(
+            "When should I post this?\n\n"
+            "Examples:\n"
+            "- tonight 9pm\n"
+            "- tomorrow morning 8am\n"
+            "- June 25 9:30pm\n"
+            "- next Monday 10am"
+        )
+
     elif query.data == "regen":
         history = context.user_data.get(_HISTORY, [])
         if not history:
@@ -131,7 +225,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             history.append({"role": "assistant", "content": response})
             context.user_data[_HISTORY] = history[-MAX_HISTORY:]
 
-            post, surrounding = _extract_post(response)
+            post, surrounding, _ = _extract_post(response)
             if post:
                 context.user_data[_LAST_POST] = post
 
@@ -165,6 +259,7 @@ def run_bot():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("clear", clear))
+    app.add_handler(CommandHandler("scheduled", scheduled_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
