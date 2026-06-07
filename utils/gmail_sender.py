@@ -1,24 +1,23 @@
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import json
+import urllib.request
 
 
 def send_email(to: str, subject: str, body: str):
-    gmail_address = os.getenv("GMAIL_ADDRESS")
-    app_password = os.getenv("GMAIL_APP_PASSWORD")
+    api_key = os.getenv("RESEND_API_KEY")
+    if not api_key:
+        raise ValueError("RESEND_API_KEY not set")
 
-    if not gmail_address or not app_password:
-        raise ValueError("GMAIL_ADDRESS and GMAIL_APP_PASSWORD not set")
+    payload = json.dumps({
+        "from": "Laura <onboarding@resend.dev>",
+        "to": [to],
+        "subject": subject,
+        "text": body
+    }).encode()
 
-    msg = MIMEMultipart()
-    msg["From"] = gmail_address
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
+    req = urllib.request.Request("https://api.resend.com/emails", data=payload, method="POST")
+    req.add_header("Authorization", f"Bearer {api_key}")
+    req.add_header("Content-Type", "application/json")
 
-    with smtplib.SMTP("smtp.office365.com", 587) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(gmail_address, app_password)
-        server.send_message(msg)
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
