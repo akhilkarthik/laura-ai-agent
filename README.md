@@ -1,6 +1,6 @@
-# Laura — AI Personal Assistant on Telegram
+# Laura — AI Agent
 
-A conversational Telegram bot that acts as your personal assistant for LinkedIn content, emails, Notion notes, and analytics. Hosted for free on GitHub Actions — no server or credit card required.
+A conversational AI agent that acts as your personal assistant for LinkedIn content, emails, Notion notes, and analytics. Hosted for free on GitHub Actions — no server or credit card required.
 
 ---
 
@@ -12,14 +12,14 @@ A conversational Telegram bot that acts as your personal assistant for LinkedIn 
 - **Analytics dashboard** — track post engagement over time, generate a visual chart on demand
 - **Email** — draft and send emails via natural language
 - **Notion notes** — save ideas, notes, and posts directly to Notion
-- **Persistent memory** — remembers every post, email, and note across sessions and bot restarts
+- **Persistent memory** — remembers every post, email, and note across sessions and agent restarts
 
 ---
 
 ## Architecture
 
 ```
-Telegram (user) ──► Bot (python-telegram-bot polling)
+Telegram (user) ──► Agent (python-telegram-bot polling)
                          │
                     Groq LLaMA 3.3 70B  ←── context injection from workspace
                          │
@@ -60,7 +60,7 @@ cd linkedin-telegram-agent
 | `MAILJET_SECRET_KEY` | Same dashboard |
 | `NOTION_API_KEY` | [notion.so/my-integrations](https://notion.so/my-integrations) → create integration |
 | `NOTION_PAGE_ID` | ID from the URL of your Notion parent page |
-| `TELEGRAM_CHAT_ID` | Send `/myid` to your bot after it starts |
+| `TELEGRAM_CHAT_ID` | Send `/myid` to your agent after it starts |
 
 ### 3. Add secrets to GitHub
 
