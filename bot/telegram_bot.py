@@ -87,5 +87,16 @@ def run_bot():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
-    print("Bot is running... Press Ctrl+C to stop.")
-    app.run_polling()
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if webhook_url:
+        port = int(os.getenv("PORT", 8000))
+        print(f"Starting webhook mode on port {port}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path="/webhook",
+            webhook_url=f"{webhook_url}/webhook",
+        )
+    else:
+        print("Bot is running in polling mode... Press Ctrl+C to stop.")
+        app.run_polling()
