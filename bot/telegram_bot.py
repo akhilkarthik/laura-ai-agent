@@ -89,17 +89,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop(_LAST_POST, None)
     context.user_data.pop(_AWAITING_SCHEDULE, None)
     await update.message.reply_text(
-        "Hey! I'm Laura, your personal assistant.\n\n"
-        "I can help you with:\n"
-        "- LinkedIn posts — create, edit, rewrite, post, schedule\n"
-        "- Edit or rewrite any content\n"
-        "- Summarize articles or papers\n"
-        "- Answer questions on any topic\n"
-        "- Write emails, messages, anything\n\n"
-        "Just talk to me naturally.\n\n"
-        "/scheduled — view pending scheduled posts\n"
-        "/help — all commands\n"
-        "/clear — reset conversation"
+        "Hey Akhil! I'm Laura, your personal assistant.\n\n"
+        "Talk to me like you'd talk to a colleague — I'll figure out what you need.\n\n"
+        "I can write LinkedIn posts, send emails, save notes to Notion, summarize articles, answer questions, schedule posts, and a lot more.\n\n"
+        "What are we working on?"
     )
 
 
@@ -263,12 +256,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif post:
             context.user_data[_LAST_POST] = post
-            if surrounding:
-                await update.message.reply_text(surrounding)
             await update.message.reply_text(
                 f"{'─' * 30}\n\n{post}\n\n{'─' * 30}",
                 reply_markup=_post_keyboard()
             )
+            if surrounding:
+                await update.message.reply_text(surrounding)
         else:
             await update.message.reply_text(response)
 
