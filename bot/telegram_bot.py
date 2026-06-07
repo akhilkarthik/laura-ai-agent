@@ -86,6 +86,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Your chat ID: {update.effective_user.id}")
+
+
 async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data[_HISTORY] = []
     context.user_data.pop(_LAST_POST, None)
@@ -275,6 +279,7 @@ def run_bot():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("clear", clear))
+    app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CommandHandler("scheduled", scheduled_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
