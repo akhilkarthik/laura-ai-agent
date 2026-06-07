@@ -10,8 +10,10 @@ from llm.groq_client import chat, parse_datetime
 from linkedin.poster import post_to_linkedin
 from db.schedule_store import add_post, get_pending, cancel_post
 from utils.url_fetcher import fetch_article
+from utils.gmail_sender import send_email
 
 _LAST_POST = "last_post"
+_LAST_EMAIL = "last_email"
 _HISTORY = "history"
 _AWAITING_SCHEDULE = "awaiting_schedule"
 MAX_HISTORY = 30
@@ -32,6 +34,24 @@ def _extract_post(text: str):
         surrounding = text.replace(match.group(0), '').strip()
         return post, surrounding, dt
     return None, text, None
+
+
+def _extract_email(text: str):
+    match = re.search(r'<email_draft to="([^"]+)" subject="([^"]+)">(.*?)</email_draft>', text, re.DOTALL)
+    if match:
+        to = match.group(1).strip()
+        subject = match.group(2).strip()
+        body = match.group(3).strip()
+        surrounding = text.replace(match.group(0), '').strip()
+        return {"to": to, "subject": subject, "body": body}, surrounding
+    return None, text
+
+
+def _email_keyboard():
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("Send Email", callback_data="send_email"),
+        InlineKeyboardButton("Edit", callback_data="edit_email"),
+    ]])
 
 
 def _post_keyboard():
@@ -175,6 +195,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             history = history[-MAX_HISTORY:]
         context.user_data[_HISTORY] = history
 
+        # Check for email draft first
+        email, surrounding = _extract_email(response)
+        if email:
+            context.user_data[_LAST_EMAIL] = email
+            if surrounding:
+                await update.message.reply_text(surrounding)
+            preview = (
+                f"To: {email['to']}\n"
+                f"Subject: {email['subject']}\n"
+                f"{'─' * 30}\n\n"
+                f"{email['body']}"
+            )
+            await update.message.reply_text(preview, reply_markup=_email_keyboard())
+            return
+
         post, surrounding, scheduled_dt = _extract_post(response)
 
         if post and scheduled_dt:
@@ -256,6 +291,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             await query.edit_message_text(f"Error: {e}")
+
+    elif query.data == "send_email":
+        email = context.user_data.get(_LAST_EMAIL)
+        if not email:
+            await query.edit_message_text("No email draft found.")
+            return
+        await query.edit_message_text("Sending email...")
+        try:
+            send_email(email["to"], email["subject"], email["body"])
+            await query.edit_message_text(f"Email sent to {email['to']}!")
+        except Exception as e:
+            await query.edit_message_text(f"Failed to send: {e}")
+
+    elif query.data == "edit_email":
+        email = context.user_data.get(_LAST_EMAIL, {})
+        await query.edit_message_text(
+            f"To: {email.get('to', '')}\n"
+            f"Subject: {email.get('subject', '')}\n"
+            f"{'─' * 30}\n\n{email.get('body', '')}\n\n"
+            "How should I edit it?"
+        )
 
     elif query.data == "edit":
         post = context.user_data.get(_LAST_POST, '')
