@@ -42,8 +42,8 @@ Telegram (user) ──► Agent (python-telegram-bot polling)
 ### 1. Fork or clone this repo
 
 ```bash
-git clone https://github.com/your-username/linkedin-telegram-agent
-cd linkedin-telegram-agent
+git clone https://github.com/your-username/laura-ai-agent
+cd laura-ai-agent
 ```
 
 ### 2. Get your API keys
