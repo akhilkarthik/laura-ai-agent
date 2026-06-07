@@ -16,6 +16,7 @@ from db.workspace import (
     get_item_by_type, update_item_meta, get_tracked_posts
 )
 from utils.url_fetcher import fetch_article
+from utils.pdf_extractor import extract_pdf
 from utils.gmail_sender import send_email
 from utils.notion_client import create_page as notion_create_page
 
@@ -554,6 +555,69 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ── PDF handler ───────────────────────────────────────────────────────────────
+
+async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    doc = update.message.document
+    caption = (update.message.caption or "").strip()
+
+    await update.message.reply_text("Reading the PDF...")
+
+    try:
+        tg_file = await context.bot.get_file(doc.file_id)
+        file_bytes = await tg_file.download_as_bytearray()
+        title, content = await asyncio.to_thread(extract_pdf, bytes(file_bytes))
+    except Exception as e:
+        await update.message.reply_text(f"Could not read the PDF: {e}")
+        return
+
+    if not content.strip():
+        await update.message.reply_text("The PDF doesn't seem to have readable text (it may be scanned/image-based).")
+        return
+
+    filename = doc.file_name or "document.pdf"
+    display_title = title or filename.replace(".pdf", "")
+
+    prefix = caption + "\n\n" if caption else "Create a LinkedIn post based on this document.\n\n"
+    user_input = f"{prefix}Document: {display_title}\n\nContent:\n{content}"
+
+    ws = await _get_workspace(user_id, context)
+    history = ws["history"]
+    history.append({"role": "user", "content": user_input})
+    await update.message.chat.send_action("typing")
+
+    try:
+        response = await chat(history, get_items_context(ws))
+        history.append({"role": "assistant", "content": response})
+        asyncio.create_task(_save_ws(user_id, context))
+
+        post, surrounding, scheduled_dt = _extract_post(response)
+        note, surrounding2 = _extract_notion_note(response)
+
+        if post:
+            context.user_data[_LAST_POST] = post
+            item_id = add_item(ws, "linkedin_post", post, f"PDF: {display_title[:50]}")
+            context.user_data[_LAST_POST_ID] = item_id
+            asyncio.create_task(_save_ws(user_id, context))
+            await update.message.reply_text(f"{'─'*30}\n\n{post}\n\n{'─'*30}", reply_markup=_post_keyboard())
+            if surrounding:
+                await update.message.reply_text(surrounding)
+        elif note:
+            try:
+                notion_url = notion_create_page(note["title"], note["content"])
+                add_item(ws, "notion_note", note["content"], note["title"])
+                asyncio.create_task(_save_ws(user_id, context))
+                await update.message.reply_text(f"Saved to Notion: {note['title']}\n\n{notion_url}")
+            except Exception as e:
+                await update.message.reply_text(f"Could not save to Notion: {e}")
+        else:
+            await update.message.reply_text(response)
+
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
+
+
 # ── Run ────────────────────────────────────────────────────────────────────────
 
 def run_bot():
@@ -571,6 +635,7 @@ def run_bot():
     app.add_handler(CommandHandler("analytics", analytics_command))
     app.add_handler(CommandHandler("scheduled", scheduled_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
     webhook_url = os.getenv("WEBHOOK_URL")
