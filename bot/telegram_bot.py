@@ -9,12 +9,14 @@ from telegram.ext import (
 from llm.groq_client import chat, parse_datetime
 from linkedin.poster import post_to_linkedin
 from db.schedule_store import add_post, get_pending, cancel_post
+from utils.url_fetcher import fetch_article
 
 _LAST_POST = "last_post"
 _HISTORY = "history"
 _AWAITING_SCHEDULE = "awaiting_schedule"
 MAX_HISTORY = 30
 IST = timezone(timedelta(hours=5, minutes=30))
+URL_RE = re.compile(r'https?://[^\s]+')
 
 
 def _extract_post(text: str):
@@ -142,6 +144,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await update.message.reply_text(f"Could not schedule: {e}")
         return
+
+    # URL detection — fetch article and enrich the message
+    url_match = URL_RE.search(user_input)
+    if url_match:
+        url = url_match.group(0)
+        await update.message.reply_text("Fetching article...")
+        try:
+            title, content = fetch_article(url)
+            extra = user_input.replace(url, '').strip()
+            prefix = extra + "\n\n" if extra else "Create a LinkedIn post based on this article.\n\n"
+            user_input = f"{prefix}Article title: {title}\n\nContent:\n{content}"
+        except Exception as e:
+            await update.message.reply_text(f"Could not fetch article: {e}")
+            return
 
     history = context.user_data.get(_HISTORY, [])
     history.append({"role": "user", "content": user_input})
